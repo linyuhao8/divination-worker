@@ -361,18 +361,27 @@ function shuffleThenSlice(arr, k) {
 
 const Validators = {
   env(env, key, j) {
-    return validate(!!env[key], {
-      error: `missing_${key.toLowerCase()}`,
-      hint: `Check your binding name; use env.${key}`,
-      code: 500,
-    });
+    return validate(
+      !!env[key],
+      {
+        error: `missing_${String(key).toLowerCase()}`,
+        hint: `Check your binding name; use env.${String(key)}`,
+        code: 500,
+      },
+      j
+    );
   },
+
   contentType(ct, j) {
-    return validate(ct.includes("application/json"), {
-      error: "content_type_must_be_application_json",
-      got: ct,
-      code: 400,
-    });
+    return validate(
+      (ct || "").toLowerCase().includes("application/json"),
+      {
+        error: "content_type_must_be_application_json",
+        got: ct,
+        code: 400,
+      },
+      j
+    );
   },
   auth(request, env, j) {
     const auth = request.headers.get("authorization") || "";
@@ -408,12 +417,7 @@ const Validators = {
 function validate(condition, { error, hint, got, code = 400 }, j) {
   if (!condition) {
     return j(
-      {
-        ok: false,
-        error,
-        ...(hint && { hint }),
-        ...(got && { got }),
-      },
+      { ok: false, error, ...(hint && { hint }), ...(got && { got }) },
       code
     );
   }
