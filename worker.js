@@ -358,31 +358,50 @@ function shuffleThenSlice(arr, k) {
   }
   return a.slice(0, k);
 }
+// 從陣列中取 k 個不重複元素
+function sampleUnique(arr, n) {
+  const len = arr.length;
+  const k = Math.max(0, Math.min(n | 0, len));
+  if (k === 0) return [];
+  if (k === len) return shuffleThenSlice(arr, len);
+
+  // 部分 Fisher–Yates：只洗出前 k 個
+  const a = arr.slice();
+  for (let i = 0; i < k; i++) {
+    const j = i + ((Math.random() * (len - i)) | 0);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, k);
+}
 
 const Validators = {
   env(env, key, j) {
-    return validate(
-      !!env[key],
-      {
-        error: `missing_${String(key).toLowerCase()}`,
-        hint: `Check your binding name; use env.${String(key)}`,
-        code: 500,
-      },
-      j
-    );
+    if (!env || !env[key]) {
+      return j(
+        {
+          ok: false,
+          error: `missing_${String(key).toLowerCase()}`,
+          hint: `Check your binding name; use env.${String(key)}`,
+        },
+        500
+      );
+    }
   },
 
   contentType(ct, j) {
-    return validate(
-      (ct || "").toLowerCase().includes("application/json"),
-      {
-        error: "content_type_must_be_application_json",
-        got: ct,
-        code: 400,
-      },
-      j
-    );
+    const v = String(ct || "").toLowerCase(); // 允許帶 ; charset=utf-8
+    if (!v.includes("application/json")) {
+      return j(
+        {
+          ok: false,
+          error: "content_type_must_be_application_json",
+          got: ct,
+        },
+        400
+      );
+    }
   },
+
   auth(request, env, j) {
     const auth = request.headers.get("authorization") || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
@@ -417,7 +436,12 @@ const Validators = {
 function validate(condition, { error, hint, got, code = 400 }, j) {
   if (!condition) {
     return j(
-      { ok: false, error, ...(hint && { hint }), ...(got && { got }) },
+      {
+        ok: false,
+        error,
+        ...(hint !== undefined && { hint }),
+        ...(got !== undefined && { got }),
+      },
       code
     );
   }
