@@ -1,0 +1,5 @@
+{
+  "name": "divination-worker",
+  "main": "worker.js",
+  "compatibility_date": "2025-10-15"
+}

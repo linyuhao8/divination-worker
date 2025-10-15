@@ -1,3 +1,0 @@
-name = "divination-worker"   # 想要的 Worker 名稱
-main = "worker.js"           # 你的唯一檔案
-compatibility_date = "2025-10-15"
