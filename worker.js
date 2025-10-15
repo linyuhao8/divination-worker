@@ -10,7 +10,7 @@ export default {
         if (badAuth) return badAuth;
 
         // 2) 再檢查必要 binding
-        const badEnv = Validators.env(env, "R2_BUCKET", j);
+        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
         // 3) Content-Type 檢查
@@ -66,7 +66,7 @@ export default {
         // 8) 覆蓋檢查（若可用，建議改成條件式 put 以避免競態）
         if (!allowOverwrite) {
           try {
-            const head = await env.R2_BUCKET.head(key);
+            const head = await env.DEVINATION_BUCKET.head(key);
             if (head)
               return j({ ok: false, error: "object_already_exists", key }, 409);
           } catch (e) {
@@ -80,7 +80,7 @@ export default {
         // 9) 寫入 R2
         let putRes;
         try {
-          putRes = await env.R2_BUCKET.put(key, bytes, {
+          putRes = await env.DEVINATION_BUCKET.put(key, bytes, {
             httpMetadata: {
               contentType,
               cacheControl: "public, max-age=31536000, immutable",
@@ -119,7 +119,7 @@ export default {
         if (badAuth) return badAuth;
 
         // 2) 檢查必要 binding
-        const badEnv = Validators.env(env, "R2_BUCKET", j);
+        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
         // 3) Content-Type 必須是 JSON
@@ -213,7 +213,7 @@ export default {
           const key = `cache/card-ids-${deck}.json`;
 
           try {
-            await env.R2_BUCKET.put(key, payload, {
+            await env.DEVINATION_BUCKET.put(key, payload, {
               httpMetadata: {
                 contentType: "application/json",
                 cacheControl: "no-store",
@@ -238,7 +238,7 @@ export default {
       // 🟡 隨機取卡：GET /getCardId?deck=love&n=1
       if (request.method === "GET" && pathname === "/getCardId") {
         // 0) 必要 binding
-        const badEnv = Validators.env(env, "R2_BUCKET", j);
+        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
         // 1) 讀取 query
@@ -261,7 +261,7 @@ export default {
         // 3) 讀取快取
         let obj;
         try {
-          const file = await env.R2_BUCKET.get(`cache/card-ids-${deck}.json`);
+          const file = await env.DEVINATION_BUCKET.get(`cache/card-ids-${deck}.json`);
           if (!file) {
             return j({ ok: false, error: "cache_not_found", deck }, 404);
           }
