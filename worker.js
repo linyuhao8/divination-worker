@@ -27,17 +27,27 @@ export default {
         let { fileBase64, key, overwrite, contentType } = body || {};
         key = (key || "").toString().trim();
 
-        // 5) 基本欄位檢查
+        // 5) 基本欄位檢查 + key 驗證（允許中文）
         if (!fileBase64 || !key) {
           return j({ ok: false, error: "missing_fileBase64_or_key" }, 400);
         }
-        if (
-          !/^[A-Za-z0-9._\-\/]+$/.test(key) ||
-          key.includes("..") ||
-          key.startsWith("/") ||
-          key.endsWith("/")
-        ) {
-          return j({ ok: false, error: "bad_key_format", key }, 400);
+
+        // 嘗試從 URL 編碼還原；做一致化
+        try {
+          key = decodeURIComponent(key);
+        } catch (_) {}
+        key = key.normalize("NFC");
+
+        // 安全檢查（允許 Unicode）
+        const byteLen = new TextEncoder().encode(key).length;
+        if (!key || byteLen > 1024) {
+          return j({ ok: false, error: "bad_key_length" }, 400);
+        }
+        if (key.startsWith("/") || key.endsWith("/") || key.includes("..")) {
+          return j({ ok: false, error: "bad_key_path", key }, 400);
+        }
+        if (/[\u0000-\u001F\u007F]/.test(key)) {
+          return j({ ok: false, error: "bad_key_control_chars", key }, 400);
         }
 
         const allowOverwrite =
@@ -261,7 +271,9 @@ export default {
         // 3) 讀取快取
         let obj;
         try {
-          const file = await env.DEVINATION_BUCKET.get(`cache/card-ids-${deck}.json`);
+          const file = await env.DEVINATION_BUCKET.get(
+            `cache/card-ids-${deck}.json`
+          );
           if (!file) {
             return j({ ok: false, error: "cache_not_found", deck }, 404);
           }
@@ -446,4 +458,3 @@ function validate(condition, { error, hint, got, code = 400 }, j) {
     );
   }
 }
- 
