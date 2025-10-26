@@ -4,6 +4,7 @@ export default {
       const url = new URL(request.url);
       const { pathname, searchParams } = url;
 
+      // 上傳圖片到R2
       if (request.method === "POST" && pathname === "/upload") {
         // 1) 先驗證 Token（避免洩漏內部細節）
         const badAuth = Validators.auth(request, env, j);
@@ -118,11 +119,12 @@ export default {
         );
       }
 
+      // 測試 worker 是否正常
       if (request.method === "GET" && pathname === "/healthz") {
         return j({ ok: true }, 200);
       }
 
-      // 🟢 更新快取：POST /updateCacheCardId
+      // 更新快取：POST /updateCacheCardId 將所有抓到的牌ID 丟到R@
       if (request.method === "POST" && pathname === "/updateCacheCardId") {
         // 1) 驗證 Token（先做，避免洩漏內部細節）
         const badAuth = Validators.auth(request, env, j);
@@ -245,7 +247,7 @@ export default {
         return j({ ok: errors.length === 0, saved, errors }, status);
       }
 
-      // 🟡 隨機取卡：GET /getCardId?deck=love&n=1
+      // 隨機取卡：GET /getCardId?deck=love&n=1 可選擇數量
       if (request.method === "GET" && pathname === "/getCardId") {
         // 0) 必要 binding
         const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
@@ -370,6 +372,7 @@ function shuffleThenSlice(arr, k) {
   }
   return a.slice(0, k);
 }
+
 // 從陣列中取 k 個不重複元素
 function sampleUnique(arr, n) {
   const len = arr.length;
@@ -444,17 +447,3 @@ const Validators = {
   },
 };
 
-// --- 共用 Helper ---
-function validate(condition, { error, hint, got, code = 400 }, j) {
-  if (!condition) {
-    return j(
-      {
-        ok: false,
-        error,
-        ...(hint !== undefined && { hint }),
-        ...(got !== undefined && { got }),
-      },
-      code
-    );
-  }
-}
