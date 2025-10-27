@@ -257,61 +257,87 @@ export default {
         const deckRaw = (searchParams.get("deck") || "").toString().trim();
         if (!deckRaw) return j({ ok: false, error: "missing_deck" }, 400);
 
-        // 與寫入端一致的白名單（可共用常數）
-        const ALLOWED = new Set(["love", "money", "career", "daily"]);
-        // 檔名安全處理（仍保留，避免奇怪字元）
-        const deck = deckRaw.replace(/[\/\\]/g, "-");
-        if (!ALLOWED.has(deck)) {
-          return j({ ok: false, error: "invalid_deck", deck }, 400);
-        }
-
-        // 2) 參數 n：最小 1、最大上限（避免濫用）
-        const MAX_N = 50;
-        const nReq = parseInt(searchParams.get("n") || "1", 10);
-        const n = Number.isFinite(nReq) && nReq > 0 ? Math.min(nReq, MAX_N) : 1;
-
-        // 3) 讀取快取
-        let obj;
-        try {
-          const file = await env.DEVINATION_BUCKET.get(
-            `cache/card-ids-${deck}.json`
-          );
-          if (!file) {
-            return j({ ok: false, error: "cache_not_found", deck }, 404);
-          }
-          obj = JSON.parse(await file.text());
-        } catch (e) {
-          return j(
-            { ok: false, error: "r2_get_error", deck, detail: String(e) },
-            500
-          );
-        }
-
-        // 4) 檢查 pool
-        const pool = Array.isArray(obj?.ids)
-          ? obj.ids.map(String).filter(Boolean)
-          : [];
-        if (pool.length === 0) {
-          return j({ ok: false, error: "cache_empty", deck }, 404);
-        }
-
-        // 5) 隨機取 n 個不重複（若 n > pool 長度，就取 pool 長度）
-        const count = Math.min(n, pool.length);
-        const ids =
-          count === pool.length
-            ? shuffleThenSlice(pool, count) // 取全部時用洗牌更快
-            : sampleUnique(pool, count);
-
-        return j(
-          {
-            ok: true,
-            deck,
-            ids,
-            totalInDeck: pool.length,
-            updatedAt: obj?.updatedAt ?? null,
-          },
-          200
+        const res = await getRandomIdsFromDeck(
+          env,
+          deckRaw,
+          searchParams.get("n")
         );
+        if (res.error) {
+          const code =
+            res.error === "cache_not_found" || res.error === "cache_empty"
+              ? 404
+              : 400;
+          return j({ ok: false, ...res }, code);
+        }
+        return j({ ok: true, ...res }, 200);
+      }
+
+      // 檢查今日使用者是否已經抽過牌
+      if (request.method === "POST" && pathname === "/checkDaily") {
+        // 1) 驗證 Token（先做，避免洩漏內部細節）
+        const badAuth = Validators.auth(request, env, j);
+        if (badAuth) return badAuth;
+
+        // 2) 檢查必要 binding
+        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
+        if (badEnv) return badEnv;
+
+        // 3) Content-Type 必須是 JSON
+        const badCt = Validators.contentType(
+          request.headers.get("content-type") || "",
+          j
+        );
+        if (badCt) return badCt;
+
+        // 4) 解析 JSON
+        const body = await Validators.json(request, j);
+        if (body?.ok === false) return body;
+
+        // 5) 取出userId 並組合成key 檢查是否有重複 格式為 id + 日期
+        const userId = String(body.userId || "").trim();
+        const quota = await checkAndMarkDailyR2(env, userId);
+        // 今日已使用
+        if (quota.used) {
+          return j({
+            ok: true,
+            used: true,
+            message: "today_already_used",
+            date: quota.date,
+            id: [],
+          });
+        }
+
+        // 同時回一張牌，避免 n8n 再打一趟（防止競態）
+        // 傳入的deck分類
+        const deck = body.deck;
+        const n = body.n;
+
+        if (deck) {
+          const res = await getRandomIdsFromDeck(env, deck, n);
+          if (res.error) {
+            // 取消當次標記（看你要不要；若要，就在 checkAndMarkDailyR2 實作一個可回滾的標記）
+            return j(
+              {
+                ok: true,
+                used: false,
+                message: "today_not_used_but_deck_error",
+                error: res.error,
+              },
+              400
+            );
+          }
+          return j(
+            {
+              ok: true,
+              used: false,
+              message: "today_marked_and_cards_ready",
+              ...res,
+            },
+            200
+          );
+        }
+
+        return j({ ok: true, used: false, message: "today_not_used" }, 200);
       }
 
       return j({ ok: false, error: "not_found" }, 404);
@@ -447,3 +473,107 @@ const Validators = {
   },
 };
 
+// 取得「台灣時區」的 YYYYMMDD 作為當日Key
+function taipeiDateKey() {
+  // sv-SE -> 2025-10-08 12:34:56
+  const s = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Taipei" });
+  return s.slice(0, 10).replace(/-/g, ""); // -> 20251008
+}
+
+async function checkAndMarkDailyR2(env, userId) {
+  const date = taipeiDateKey();
+  const key = `quota/draw-${date}/${encodeURIComponent(userId)}.json`;
+
+  // 1) 先HEAD：就代表今天用過了
+  const head = await env.DEVINATION_BUCKET.head(key);
+  if (head) return { used: true, data };
+
+  // 2) 嘗試寫入一個很小的佔位物件
+  //    （並非嚴格原子：極端併發下仍可能雙寫）
+  try {
+    await env.DEVINATION_BUCKET.put(
+      key,
+      JSON.stringify({ userId, at: new Date().toISOString() }),
+      {
+        httpMetadata: {
+          contentType: "application/json",
+          cacheControl: "no-store",
+        },
+        // 也可加上短 TTL 的清理流程，或由排程刪舊日資料
+      }
+    );
+  } catch (_) {
+    // 少數情況下並發衝突會在這裡補捉
+    return { used: true, date };
+  }
+
+  return { used: false, date };
+}
+
+// 與寫入端一致的白名單（可共用常數）
+const ALLOWED = new Set(["love", "money", "career", "daily"]);
+
+// 清洗傳入的Deck文字
+function normDeck(raw) {
+  const d = String(raw || "")
+    .trim()
+    .replace(/[\/\\]/g, "-");
+  if (!ALLOWED.has(d)) throw new Error("invalid_deck");
+  return d;
+}
+
+// 1.env 2.分類名 3.回傳 抽到牌實例的數量
+async function getRandomIdsFromDeck(env, deckRaw, nRaw) {
+  const deck = normDeck(deckRaw);
+  const nReq = parseInt(nRaw ?? "1", 10);
+  const n = Number.isFinite(nReq) && nReq > 0 ? Math.min(nReq, MAX_N) : 1;
+
+  let obj;
+  const file = await env.DEVINATION_BUCKET.get(`cache/card-ids-${deck}.json`);
+  if (!file)
+    return {
+      deck,
+      ids: [],
+      totalInDeck: 0,
+      updatedAt: null,
+      error: "cache_not_found",
+    };
+
+  try {
+    obj = JSON.parse(await file.text());
+  } catch {
+    return {
+      deck,
+      ids: [],
+      totalInDeck: 0,
+      updatedAt: null,
+      error: "bad_cache_json",
+    };
+  }
+
+  const pool = Array.isArray(obj?.ids)
+    ? obj.ids.map(String).filter(Boolean)
+    : [];
+  if (!pool.length)
+    return {
+      deck,
+      ids: [],
+      totalInDeck: 0,
+      updatedAt: obj?.updatedAt ?? null,
+      error: "cache_empty",
+    };
+
+  const count = Math.min(n, pool.length);
+  const ids =
+    count === pool.length
+      ? shuffleThenSlice(pool, count)
+      : sampleUnique(pool, count);
+
+  return {
+    deck,
+    ids,
+    totalInDeck: pool.length,
+    updatedAt: obj?.updatedAt ?? null,
+    error: null,
+  };
+}
