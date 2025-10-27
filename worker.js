@@ -303,7 +303,7 @@ export default {
             used: true,
             message: "today_already_used",
             date: quota.date,
-            id: [],
+            ids: [],
           });
         }
 
@@ -486,7 +486,7 @@ async function checkAndMarkDailyR2(env, userId) {
 
   // 1) 先HEAD：就代表今天用過了
   const head = await env.DEVINATION_BUCKET.head(key);
-  if (head) return { used: true, data };
+  if (head) return { used: true, date };
 
   // 2) 嘗試寫入一個很小的佔位物件
   //    （並非嚴格原子：極端併發下仍可能雙寫）
@@ -524,6 +524,7 @@ function normDeck(raw) {
 
 // 1.env 2.分類名 3.回傳 抽到牌實例的數量
 async function getRandomIdsFromDeck(env, deckRaw, nRaw) {
+  const MAX_N = 1;
   const deck = normDeck(deckRaw);
   const nReq = parseInt(nRaw ?? "1", 10);
   const n = Number.isFinite(nReq) && nReq > 0 ? Math.min(nReq, MAX_N) : 1;
