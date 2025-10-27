@@ -11,7 +11,7 @@ export default {
         if (badAuth) return badAuth;
 
         // 2) 再檢查必要 binding
-        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
+        const badEnv = Validators.env(env, "DIVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
         // 3) Content-Type 檢查
@@ -77,7 +77,7 @@ export default {
         // 8) 覆蓋檢查（若可用，建議改成條件式 put 以避免競態）
         if (!allowOverwrite) {
           try {
-            const head = await env.DEVINATION_BUCKET.head(key);
+            const head = await env.DIVINATION_BUCKET.head(key);
             if (head)
               return j({ ok: false, error: "object_already_exists", key }, 409);
           } catch (e) {
@@ -91,7 +91,7 @@ export default {
         // 9) 寫入 R2
         let putRes;
         try {
-          putRes = await env.DEVINATION_BUCKET.put(key, bytes, {
+          putRes = await env.DIVINATION_BUCKET.put(key, bytes, {
             httpMetadata: {
               contentType,
               cacheControl: "public, max-age=31536000, immutable",
@@ -131,7 +131,7 @@ export default {
         if (badAuth) return badAuth;
 
         // 2) 檢查必要 binding
-        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
+        const badEnv = Validators.env(env, "DIVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
         // 3) Content-Type 必須是 JSON
@@ -225,7 +225,7 @@ export default {
           const key = `cache/card-ids-${deck}.json`;
 
           try {
-            await env.DEVINATION_BUCKET.put(key, payload, {
+            await env.DIVINATION_BUCKET.put(key, payload, {
               httpMetadata: {
                 contentType: "application/json",
                 cacheControl: "no-store",
@@ -250,7 +250,7 @@ export default {
       // 隨機取卡：GET /getCardId?deck=love&n=1 可選擇數量
       if (request.method === "GET" && pathname === "/getCardId") {
         // 0) 必要 binding
-        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
+        const badEnv = Validators.env(env, "DIVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
         // 1) 讀取 query
@@ -279,7 +279,7 @@ export default {
         if (badAuth) return badAuth;
 
         // 2) 檢查必要 binding
-        const badEnv = Validators.env(env, "DEVINATION_BUCKET", j);
+        const badEnv = Validators.env(env, "DIVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
         // 3) Content-Type 必須是 JSON
@@ -485,13 +485,13 @@ async function checkAndMarkDailyR2(env, userId) {
   const key = `quota/draw-${date}/${encodeURIComponent(userId)}.json`;
 
   // 1) 先HEAD：就代表今天用過了
-  const head = await env.DEVINATION_BUCKET.head(key);
+  const head = await env.DIVINATION_BUCKET.head(key);
   if (head) return { used: true, date };
 
   // 2) 嘗試寫入一個很小的佔位物件
   //    （並非嚴格原子：極端併發下仍可能雙寫）
   try {
-    await env.DEVINATION_BUCKET.put(
+    await env.DIVINATION_BUCKET.put(
       key,
       JSON.stringify({ userId, at: new Date().toISOString() }),
       {
@@ -530,7 +530,7 @@ async function getRandomIdsFromDeck(env, deckRaw, nRaw) {
   const n = Number.isFinite(nReq) && nReq > 0 ? Math.min(nReq, MAX_N) : 1;
 
   let obj;
-  const file = await env.DEVINATION_BUCKET.get(`cache/card-ids-${deck}.json`);
+  const file = await env.DIVINATION_BUCKET.get(`cache/card-ids-${deck}.json`);
   if (!file)
     return {
       deck,

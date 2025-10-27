@@ -12,7 +12,7 @@
   "r2_buckets": [
     {
       // Worker 內使用的環境變數名稱（需與程式碼一致）
-      "binding": "DEVINATION_BUCKET",
+      "binding": "DIVINATION_BUCKET",
 
       // R2 實際的桶名（Cloudflare R2 內看到的名稱）
       "bucket_name": "divination"
