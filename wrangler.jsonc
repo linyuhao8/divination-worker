@@ -1,5 +1,21 @@
 {
+  // Worker 名稱
   "name": "divination-worker",
+
+  // 主程式檔案
   "main": "worker.js",
-  "compatibility_date": "2025-10-15"
+
+  // Cloudflare Worker 相容日期（建議用當天或稍早）
+  "compatibility_date": "2025-10-27",
+
+  // R2 綁定設定
+  "r2_buckets": [
+    {
+      // Worker 內使用的環境變數名稱（需與程式碼一致）
+      "binding": "DEVINATION_BUCKET",
+
+      // R2 實際的桶名（Cloudflare R2 內看到的名稱）
+      "bucket_name": "divination"
+    }
+  ]
 }
