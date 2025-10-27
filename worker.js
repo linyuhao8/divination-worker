@@ -259,7 +259,7 @@ export default {
         // 1) 讀取 query
         const deckRaw = (searchParams.get("deck") || "").toString().trim();
         if (!deckRaw)
-          return dailyResponse({
+          return dailyResp({
             ok: false,
             message: "missing_deck",
             error: "missing_deck",
@@ -274,7 +274,7 @@ export default {
         if (res.error) {
           const isNotFound =
             res.error === "cache_not_found" || res.error === "cache_empty";
-          return dailyResponse({
+          return dailyResp({
             ok: false,
             message: isNotFound ? "deck_not_found_or_empty" : "deck_error",
             deck: res.deck,
@@ -286,7 +286,7 @@ export default {
         }
 
         // 成功取得牌組
-        return dailyResponse({
+        return dailyResp({
           ok: true,
           message: "deck_draw_success",
           deck: res.deck,
@@ -367,7 +367,7 @@ export default {
           message: "today_not_used",
         });
       }
-      
+
     } catch (e) {
       // 所有未預期錯誤
       return j(
