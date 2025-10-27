@@ -247,29 +247,53 @@ export default {
         return j({ ok: errors.length === 0, saved, errors }, status);
       }
 
-      // 隨機取卡：GET /getCardId?deck=love&n=1 可選擇數量
+      // 隨機取卡：GET /getCardId?deck=love&n=1 可選擇數量 這是不包含每日限制 測試用的
       if (request.method === "GET" && pathname === "/getCardId") {
         // 0) 必要 binding
         const badEnv = Validators.env(env, "DIVINATION_BUCKET", j);
         if (badEnv) return badEnv;
 
+        const badAuth = Validators.auth(request, env, j);
+        if (badAuth) return badAuth;
+
         // 1) 讀取 query
         const deckRaw = (searchParams.get("deck") || "").toString().trim();
-        if (!deckRaw) return j({ ok: false, error: "missing_deck" }, 400);
+        if (!deckRaw)
+          return dailyResponse({
+            ok: false,
+            message: "missing_deck",
+            error: "missing_deck",
+          });
 
         const res = await getRandomIdsFromDeck(
           env,
           deckRaw,
           searchParams.get("n")
         );
+
         if (res.error) {
-          const code =
-            res.error === "cache_not_found" || res.error === "cache_empty"
-              ? 404
-              : 400;
-          return j({ ok: false, ...res }, code);
+          const isNotFound =
+            res.error === "cache_not_found" || res.error === "cache_empty";
+          return dailyResponse({
+            ok: false,
+            message: isNotFound ? "deck_not_found_or_empty" : "deck_error",
+            deck: res.deck,
+            ids: [],
+            totalInDeck: res.totalInDeck,
+            updatedAt: res.updatedAt,
+            error: res.error,
+          });
         }
-        return j({ ok: true, ...res }, 200);
+
+        // 成功取得牌組
+        return dailyResponse({
+          ok: true,
+          message: "deck_draw_success",
+          deck: res.deck,
+          ids: res.ids,
+          totalInDeck: res.totalInDeck,
+          updatedAt: res.updatedAt,
+        });
       }
 
       // 檢查今日使用者是否已經抽過牌
@@ -298,49 +322,52 @@ export default {
         const quota = await checkAndMarkDailyR2(env, userId);
         // 今日已使用
         if (quota.used) {
-          return j({
-            ok: true,
+          return dailyResp({
             used: true,
-            message: "today_already_used",
             date: quota.date,
-            ids: [],
+            message: "today_already_used",
           });
         }
 
         // 同時回一張牌，避免 n8n 再打一趟（防止競態）
         // 傳入的deck分類
-        const deck = body.deck;
+        const deck = body.deck || null;
         const n = body.n;
 
         if (deck) {
           const res = await getRandomIdsFromDeck(env, deck, n);
           if (res.error) {
-            // 取消當次標記（看你要不要；若要，就在 checkAndMarkDailyR2 實作一個可回滾的標記）
-            return j(
-              {
-                ok: true,
-                used: false,
-                message: "today_not_used_but_deck_error",
-                error: res.error,
-              },
-              400
-            );
-          }
-          return j(
-            {
-              ok: true,
+            return dailyResp({
+              ok: false,
               used: false,
-              message: "today_marked_and_cards_ready",
-              ...res,
-            },
-            200
-          );
+              date: quota.date,
+              message: "today_not_used_but_deck_error",
+              deck,
+              ids: [],
+              totalInDeck: res.totalInDeck ?? 0,
+              updatedAt: res.updatedAt ?? null,
+              error: res.error,
+            });
+          }
+          return dailyResp({
+            used: false,
+            date: quota.date,
+            message: "today_marked_and_cards_ready",
+            deck: res.deck,
+            ids: res.ids,
+            totalInDeck: res.totalInDeck,
+            updatedAt: res.updatedAt,
+          });
         }
 
-        return j({ ok: true, used: false, message: "today_not_used" }, 200);
+        // 沒帶 deck 就只回今日未使用
+        return dailyResp({
+          used: false,
+          date: quota.date,
+          message: "today_not_used",
+        });
       }
-
-      return j({ ok: false, error: "not_found" }, 404);
+      
     } catch (e) {
       // 所有未預期錯誤
       return j(
@@ -357,6 +384,23 @@ function j(obj, status = 200) {
     status,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
+}
+
+function dailyResp({
+  ok = true,
+  used,
+  date,
+  message,
+  deck = null,
+  ids = [],
+  totalInDeck = null,
+  updatedAt = null,
+  error = null,
+}) {
+  return j(
+    { ok, used, date, message, deck, ids, totalInDeck, updatedAt, error },
+    ok ? 200 : 400
+  );
 }
 
 // 更健壯的 base64 轉位元組：
